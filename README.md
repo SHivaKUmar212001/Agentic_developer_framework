@@ -37,7 +37,7 @@ forge run --fix ./my-repo --focus "the login endpoint returns 500"
 
 ## Configuration
 
-Copy [forge.example.yaml](/Users/shibapalo/Documents/AI agentic developer framework/forge.example.yaml)
+Copy [forge.example.yaml]
 to `forge.yaml` in the repo you want `forge` to work on, then adjust the flags
 you need.
 
@@ -98,5 +98,5 @@ tests/
   mock provider.
 - GitHub Actions runs the suite on every push and pull request.
 
-See [WALKTHROUGH.md](/Users/shibapalo/Documents/AI agentic developer framework/WALKTHROUGH.md)
+See [WALKTHROUGH.md]
 for a sample end-to-end run.
