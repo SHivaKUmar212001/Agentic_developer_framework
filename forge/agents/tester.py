@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
 import re
-import subprocess
 from typing import Optional
 
 from forge.agents.base import BaseAgent
@@ -23,13 +21,21 @@ RULES:
 
 OUTPUT FORMAT - respond with ONLY this JSON:
 {
-  "test_files": [
+  "operations": [
     {
+      "type": "write_file|replace_in_file|delete_file",
       "path": "tests/test_something.py",
-      "content": "full test file content"
+      "content": "required for write_file",
+      "changes": [
+        {
+          "old": "required for replace_in_file",
+          "new": "replacement text",
+          "replace_all": false
+        }
+      ]
     }
   ],
-  "run_command": "pytest tests -q",
+  "run_command": "python -m pytest tests -q",
   "framework": "pytest"
 }"""
 
@@ -61,66 +67,26 @@ Write comprehensive tests for this task."""
 
         response = await self.call(prompt)
         test_spec = self.parse_json(response)
+        state.add_log(self.name, f"{task.id}: generated test plan")
+        return test_spec
 
-        for test_file in test_spec.get("test_files", []):
-            full_path = Path(state.repo_path) / test_file["path"]
-            full_path.parent.mkdir(parents=True, exist_ok=True)
-            full_path.write_text(test_file["content"], encoding="utf-8")
-            state.written_files[test_file["path"]] = test_file["content"]
+    @staticmethod
+    def summarize_test_command(command_result: dict) -> dict:
+        output = command_result.get("output", "")
+        return_code = command_result.get("return_code", -1)
 
-        run_command = test_spec.get("run_command", "pytest tests -q")
-        result = {
-            "test_files": test_spec.get("test_files", []),
-            "run_command": run_command,
-            **self._run_tests(run_command, state.repo_path),
-        }
-        state.test_results = result
-        state.add_log(
-            self.name,
-            f"{task.id}: {result.get('passed', 0)} passed, {result.get('failed', 0)} failed",
+        passed = sum(int(match.group(1)) for match in re.finditer(r"(\d+)\s+passed", output))
+        failed = sum(
+            int(match.group(1))
+            for match in re.finditer(r"(\d+)\s+(?:failed|error|errors)", output)
         )
-        return result
+        if return_code != 0 and failed == 0:
+            failed = 1
 
-    def _run_tests(self, command: str, cwd: str) -> dict:
-        try:
-            result = subprocess.run(
-                command,
-                cwd=cwd,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=180,
-            )
-            output = (result.stdout or "") + "\n" + (result.stderr or "")
-
-            passed = sum(int(match.group(1)) for match in re.finditer(r"(\d+)\s+passed", output))
-            failed = sum(
-                int(match.group(1))
-                for match in re.finditer(r"(\d+)\s+(?:failed|error|errors)", output)
-            )
-            if result.returncode != 0 and failed == 0:
-                failed = 1
-
-            return {
-                "all_passed": result.returncode == 0,
-                "passed": passed,
-                "failed": failed,
-                "output": output[-4000:],
-                "return_code": result.returncode,
-            }
-        except subprocess.TimeoutExpired:
-            return {
-                "all_passed": False,
-                "passed": 0,
-                "failed": 1,
-                "output": "TIMEOUT: tests took longer than 180 seconds",
-                "return_code": -1,
-            }
-        except Exception as exc:
-            return {
-                "all_passed": False,
-                "passed": 0,
-                "failed": 1,
-                "output": f"Failed to run tests: {exc}",
-                "return_code": -1,
-            }
+        return {
+            "all_passed": return_code == 0,
+            "passed": passed,
+            "failed": failed,
+            "output": output[-4000:],
+            "return_code": return_code,
+        }

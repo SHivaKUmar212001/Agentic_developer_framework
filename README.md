@@ -11,9 +11,12 @@ driven.
 
 - A CLI entry point: `forge run`
 - Agent roles for planning, coding, review, testing, fixing, and reporting
-- Wave-based task planning that surfaces parallelizable work
+- Isolated per-task workspaces for parallel-ready waves
+- Structured edit operations instead of prompt-only full-file rewrites
+- Provider adapters for Anthropic, OpenAI, Ollama, and mock testing
+- Hardened shell execution through an allowlist and no-shell subprocess policy
 - Project-level configuration through `forge.yaml`
-- A small smoke-test suite for the package internals
+- Fixture-based tests plus GitHub Actions CI
 
 ## Quick start
 
@@ -23,6 +26,7 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 
 export ANTHROPIC_API_KEY="sk-ant-..."
+export FORGE_PROVIDER="anthropic"
 
 # Build mode
 forge run "build a todo app with auth and SQLite"
@@ -43,6 +47,16 @@ You can also override the default model globally:
 export FORGE_MODEL="claude-sonnet-4-20250514"
 export FORGE_MAX_TOKENS="8192"
 ```
+
+Provider options:
+
+- `FORGE_PROVIDER=anthropic`
+- `FORGE_PROVIDER=openai`
+- `FORGE_PROVIDER=ollama`
+- `FORGE_PROVIDER=mock`
+
+The mock provider is used in the fixture-based end-to-end tests and reads its
+responses from `FORGE_MOCK_RESPONSES`.
 
 ## Repository layout
 
@@ -68,20 +82,21 @@ tests/
 
 ## Current limitations
 
-- The framework currently uses Anthropic directly; provider abstraction is still
-  thin.
-- Task waves are identified up front, but execution stays serialized to avoid
-  file and git conflicts inside a shared working tree.
-- Shell commands are model generated, so sandboxing and allowlists are an
-  important next hardening step.
+- Parallel tasks still rely on non-overlapping file edits. If two tasks touch
+  the same file in a wave, the framework now detects that and fails the wave
+  merge for safety.
+- Structured edit operations are safer than whole-file blobs, but they still
+  depend on the model producing valid targeted replacements.
+- The shell policy is hardened, but it is still an allowlist, not a true OS
+  sandbox.
 
-## Suggested improvement areas
+## Verification
 
-1. Add isolated task sandboxes so independent tasks can truly run in parallel.
-2. Replace prompt-only file writes with structured diffs or tool calling.
-3. Add real integration tests against small fixture repositories.
-4. Support multiple LLM providers behind a single adapter interface.
+- Unit tests cover config loading, edit application, workspace diffs, shell
+  allowlisting, and provider JSON parsing.
+- A realistic fix-mode fixture test runs the orchestrator end to end with the
+  mock provider.
+- GitHub Actions runs the suite on every push and pull request.
 
 See [WALKTHROUGH.md](/Users/shibapalo/Documents/AI agentic developer framework/WALKTHROUGH.md)
 for a sample end-to-end run.
-

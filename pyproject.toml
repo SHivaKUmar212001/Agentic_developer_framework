@@ -11,6 +11,8 @@ requires-python = ">=3.9"
 dependencies = [
     "anthropic>=0.30.0",
     "click>=8.1",
+    "httpx>=0.28",
+    "openai>=1.0",
     "PyYAML>=6.0",
     "rich>=13.0",
 ]

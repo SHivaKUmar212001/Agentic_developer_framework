@@ -9,6 +9,7 @@ import re
 import subprocess
 
 SKIP_DIRS = {
+    ".forge_runtime",
     ".git",
     ".hg",
     ".svn",
@@ -73,6 +74,7 @@ class SharedState:
     current_review: dict[str, Any] = field(default_factory=dict)
     review_history: list[dict[str, Any]] = field(default_factory=list)
     test_results: dict[str, Any] = field(default_factory=dict)
+    test_history: list[dict[str, Any]] = field(default_factory=list)
     retry_count: int = 0
     max_retries: int = 3
     log: list[str] = field(default_factory=list)
@@ -195,4 +197,3 @@ class SharedState:
         except Exception as exc:
             self.add_log("git", f"Commit failed for {task.id}: {exc}")
             return False
-

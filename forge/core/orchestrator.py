@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+import copy
 import os
 import subprocess
 from pathlib import Path
+from dataclasses import dataclass
+from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
@@ -15,40 +19,17 @@ from forge.agents.reporter import Reporter
 from forge.agents.reviewer import Reviewer
 from forge.agents.tester import Tester
 from forge.core.config import ForgeConfig
+from forge.core.edits import apply_operations, materialize_file_specs, normalize_operations
 from forge.core.parallel import describe_execution_plan, get_execution_waves
+from forge.core.shell import ShellExecutor
 from forge.core.state import SharedState, Task
+from forge.core.workspaces import (
+    collect_workspace_operations,
+    create_task_workspace,
+    remove_workspace,
+)
 
 console = Console()
-
-
-def write_files(files: list[dict], repo_path: str, state: SharedState) -> None:
-    for file_spec in files:
-        full_path = os.path.join(repo_path, file_spec["path"])
-        directory = os.path.dirname(full_path)
-        if directory:
-            os.makedirs(directory, exist_ok=True)
-        with open(full_path, "w", encoding="utf-8") as handle:
-            handle.write(file_spec["content"])
-        state.written_files[file_spec["path"]] = file_spec["content"]
-
-
-def run_commands(commands: list[str], repo_path: str, state: SharedState) -> None:
-    for command in commands:
-        state.add_log("shell", f"Running: {command}")
-        try:
-            result = subprocess.run(
-                command,
-                cwd=repo_path,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=180,
-            )
-            if result.returncode != 0:
-                message = result.stderr.strip() or result.stdout.strip()
-                state.add_log("shell", f"Command failed ({result.returncode}): {message}")
-        except Exception as exc:
-            state.add_log("shell", f"Command failed: {exc}")
 
 
 def write_report(report: dict, repo_path: str) -> str:
@@ -82,16 +63,98 @@ def write_report(report: dict, repo_path: str) -> str:
     return report_path
 
 
+@dataclass
+class TaskRunResult:
+    task_id: str
+    success: bool
+    workspace_path: str
+    merge_operations: list[dict[str, Any]]
+    changed_paths: set[str]
+    task_state: SharedState
+    new_logs: list[str]
+    new_reviews: list[dict[str, Any]]
+    test_result: dict[str, Any]
+    error: str = ""
+
+
+def apply_output_payload(
+    payload: dict[str, Any],
+    repo_path: str,
+    *,
+    legacy_key: str,
+    output_key: str,
+) -> list[str]:
+    operations = normalize_operations(payload, legacy_key=legacy_key)
+    changed_paths = apply_operations(repo_path, operations)
+    payload["operations"] = operations
+    payload[output_key] = materialize_file_specs(repo_path, changed_paths)
+    return changed_paths
+
+
+def run_safe_commands(
+    commands: list[str],
+    repo_path: str,
+    state: SharedState,
+    executor: ShellExecutor,
+) -> None:
+    for command in commands:
+        state.add_log("shell", f"Running: {command}")
+        result = executor.run_command(command, repo_path)
+        if not result.get("allowed"):
+            state.add_log("shell", f"Blocked command: {result.get('output', '')}")
+            continue
+
+        if result.get("return_code", 1) != 0:
+            output = result.get("output", "").strip()
+            state.add_log("shell", f"Command failed ({result['return_code']}): {output}")
+
+
+def execute_test_spec(
+    task: Task,
+    task_state: SharedState,
+    tester: Tester,
+    test_spec: dict[str, Any],
+    executor: ShellExecutor,
+) -> dict[str, Any]:
+    test_paths = apply_output_payload(
+        test_spec,
+        task_state.repo_path,
+        legacy_key="test_files",
+        output_key="test_files",
+    )
+    run_command = test_spec.get("run_command", "python -m pytest tests -q")
+    command_result = executor.run_command(run_command, task_state.repo_path)
+    summary = tester.summarize_test_command(command_result)
+    result = {
+        "test_files": materialize_file_specs(task_state.repo_path, test_paths),
+        "run_command": run_command,
+        **summary,
+    }
+    task_state.test_results = result
+    task_state.test_history.append(result)
+    task_state.add_log(
+        tester.name,
+        f"{task.id}: {result.get('passed', 0)} passed, {result.get('failed', 0)} failed",
+    )
+    return result
+
+
 async def process_single_task(
     task: Task,
     state: SharedState,
+    workspace_path: str,
+    base_snapshot: dict[str, str],
     config: ForgeConfig,
     coder: Coder,
     reviewer: Reviewer,
     tester: Tester,
     fixer: Fixer,
-) -> bool:
-    repo_path = state.repo_path
+    executor: ShellExecutor,
+    log_offset: int,
+    review_offset: int,
+) -> TaskRunResult:
+    repo_path = workspace_path
+    state.repo_path = workspace_path
     task.status = "in_progress"
 
     console.print(Panel(f"Task {task.id}: {task.description}", style="bold green"))
@@ -99,14 +162,26 @@ async def process_single_task(
     console.print("[cyan]  Coder[/cyan] writing code...")
     try:
         code_output = await coder.run(state, task)
+        apply_output_payload(code_output, repo_path, legacy_key="files", output_key="files")
+        for file_spec in code_output.get("files", []):
+            state.written_files[file_spec["path"]] = file_spec["content"]
+        run_safe_commands(code_output.get("commands", []), repo_path, state, executor)
     except Exception as exc:
         task.status = "failed"
         state.add_log("coder", f"{task.id} failed: {exc}")
         console.print(f"[red]  Coder failed: {exc}[/red]")
-        return False
-
-    write_files(code_output.get("files", []), repo_path, state)
-    run_commands(code_output.get("commands", []), repo_path, state)
+        return TaskRunResult(
+            task_id=task.id,
+            success=False,
+            workspace_path=workspace_path,
+            merge_operations=[],
+            changed_paths=set(),
+            task_state=state,
+            new_logs=state.log[log_offset:],
+            new_reviews=state.review_history[review_offset:],
+            test_result=state.test_results,
+            error=str(exc),
+        )
 
     if not config.skip_review:
         for attempt in range(1, config.max_review_retries + 1):
@@ -134,8 +209,15 @@ async def process_single_task(
                 console.print("[cyan]  Coder[/cyan] fixing review issues...")
                 try:
                     code_output = await coder.run(state, task, feedback=issues)
-                    write_files(code_output.get("files", []), repo_path, state)
-                    run_commands(code_output.get("commands", []), repo_path, state)
+                    apply_output_payload(
+                        code_output,
+                        repo_path,
+                        legacy_key="files",
+                        output_key="files",
+                    )
+                    for file_spec in code_output.get("files", []):
+                        state.written_files[file_spec["path"]] = file_spec["content"]
+                    run_safe_commands(code_output.get("commands", []), repo_path, state, executor)
                 except Exception as exc:
                     state.add_log("coder", f"{task.id} review fix failed: {exc}")
                     break
@@ -145,12 +227,24 @@ async def process_single_task(
     if not config.skip_tests:
         console.print("[magenta]  Tester[/magenta] writing and running tests...")
         try:
-            test_result = await tester.run(state, task, code_output=code_output)
+            test_spec = await tester.run(state, task, code_output=code_output)
+            test_result = execute_test_spec(task, state, tester, test_spec, executor)
         except Exception as exc:
             state.add_log("tester", f"{task.id} failed: {exc}")
             console.print(f"[red]  Test run failed: {exc}[/red]")
             task.status = "failed"
-            return False
+            return TaskRunResult(
+                task_id=task.id,
+                success=False,
+                workspace_path=workspace_path,
+                merge_operations=[],
+                changed_paths=set(),
+                task_state=state,
+                new_logs=state.log[log_offset:],
+                new_reviews=state.review_history[review_offset:],
+                test_result=state.test_results,
+                error=str(exc),
+            )
 
         if test_result.get("all_passed"):
             console.print(f"[green]  {test_result.get('passed', 0)} tests passed[/green]")
@@ -169,41 +263,102 @@ async def process_single_task(
                     state.add_log("fixer", f"{task.id} failed: {exc}")
                     break
 
-                fixed_files = fix_output.get("files", [])
-                write_files(fixed_files, repo_path, state)
-
-                file_map = {file_spec["path"]: file_spec for file_spec in code_output.get("files", [])}
-                for fixed_file in fixed_files:
-                    file_map[fixed_file["path"]] = fixed_file
-                code_output["files"] = list(file_map.values())
-
-                console.print("[magenta]  Tester[/magenta] re-running...")
-                test_result = await tester.run(state, task, code_output=code_output)
-                if test_result.get("all_passed"):
-                    console.print(
-                        f"[green]  All {test_result.get('passed', 0)} tests passed[/green]"
+                try:
+                    fixed_paths = apply_output_payload(
+                        fix_output,
+                        repo_path,
+                        legacy_key="files",
+                        output_key="files",
                     )
+                    fixed_files = materialize_file_specs(repo_path, fixed_paths)
+                    for fixed_file in fixed_files:
+                        state.written_files[fixed_file["path"]] = fixed_file["content"]
+
+                    file_map = {
+                        file_spec["path"]: file_spec
+                        for file_spec in code_output.get("files", [])
+                    }
+                    for fixed_file in fixed_files:
+                        file_map[fixed_file["path"]] = fixed_file
+                    code_output["files"] = list(file_map.values())
+
+                    console.print("[magenta]  Tester[/magenta] re-running...")
+                    command_result = executor.run_command(test_result["run_command"], repo_path)
+                    test_result = {
+                        "test_files": test_result.get("test_files", []),
+                        "run_command": test_result["run_command"],
+                        **tester.summarize_test_command(command_result),
+                    }
+                    state.test_results = test_result
+                    state.test_history.append(test_result)
+                    if test_result.get("all_passed"):
+                        console.print(
+                            f"[green]  All {test_result.get('passed', 0)} tests passed[/green]"
+                        )
+                        break
+                except Exception as exc:
+                    state.add_log("fixer", f"{task.id} apply failed: {exc}")
                     break
 
             if not test_result.get("all_passed"):
                 task.status = "failed"
                 state.add_log("tester", f"{task.id} still failing after retries")
-                return False
+                return TaskRunResult(
+                    task_id=task.id,
+                    success=False,
+                    workspace_path=workspace_path,
+                    merge_operations=[],
+                    changed_paths=set(),
+                    task_state=state,
+                    new_logs=state.log[log_offset:],
+                    new_reviews=state.review_history[review_offset:],
+                    test_result=test_result,
+                    error="Tests still failing after retries.",
+                )
     else:
         console.print("[dim]  Tests skipped by config.[/dim]")
 
     task.status = "done"
-    committed = state.commit(task, repo_path)
+    merge_operations, final_paths = collect_workspace_operations(base_snapshot, workspace_path)
+    return TaskRunResult(
+        task_id=task.id,
+        success=True,
+        workspace_path=workspace_path,
+        merge_operations=merge_operations,
+        changed_paths=final_paths,
+        task_state=state,
+        new_logs=state.log[log_offset:],
+        new_reviews=state.review_history[review_offset:],
+        test_result=state.test_results,
+    )
+
+
+def merge_task_result(task: Task, state: SharedState, result: TaskRunResult) -> None:
+    apply_operations(state.repo_path, result.merge_operations)
+    for file_spec in materialize_file_specs(state.repo_path, list(result.changed_paths)):
+        state.written_files[file_spec["path"]] = file_spec["content"]
+    for operation in result.merge_operations:
+        if operation.get("type") == "delete_file":
+            state.written_files.pop(operation["path"], None)
+
+    state.log.extend(result.new_logs)
+    state.review_history.extend(result.new_reviews)
+    if result.test_result:
+        state.test_results = result.test_result
+        state.test_history.append(result.test_result)
+
+    task.status = "done"
+    committed = state.commit(task, state.repo_path)
     if committed:
         console.print(f"[dim]  Committed {task.id}[/dim]")
     else:
         console.print(f"[dim]  No git commit created for {task.id}[/dim]")
-    return True
 
 
 async def orchestrate(state: SharedState) -> None:
     repo_path = state.repo_path
     config = ForgeConfig.load(repo_path)
+    shell_executor = ShellExecutor(config.shell)
 
     if state.mode == "build":
         os.makedirs(repo_path, exist_ok=True)
@@ -244,14 +399,94 @@ async def orchestrate(state: SharedState) -> None:
         console.print(f"\n{'=' * 60}")
         mode_label = "parallel-ready" if len(wave) > 1 else "sequential"
         console.print(f"[bold]Wave {wave_index}/{len(waves)} ({mode_label})[/bold]")
-        if len(wave) > 1 and config.parallel:
-            console.print(
-                "[dim]Independent tasks were identified, but execution remains serialized "
-                "to avoid shared workspace conflicts.[/dim]"
+        runnable_tasks: list[Task] = []
+        for task in wave:
+            dep_statuses = {
+                dep: next((item.status for item in state.tasks if item.id == dep), "missing")
+                for dep in task.dependencies
+            }
+            if all(status == "done" for status in dep_statuses.values()):
+                runnable_tasks.append(task)
+            else:
+                task.status = "failed"
+                state.add_log("orchestrator", f"{task.id} skipped because dependencies failed: {dep_statuses}")
+                console.print(f"[red]Skipping {task.id} because a dependency did not complete.[/red]")
+
+        workspace_specs = [
+            create_task_workspace(repo_path, task.id, config.runtime_dir)
+            for task in runnable_tasks
+        ]
+
+        task_runs = []
+        for task, workspace in zip(runnable_tasks, workspace_specs):
+            task_state = copy.deepcopy(state)
+            task_runs.append(
+                process_single_task(
+                    task,
+                    task_state,
+                    workspace.path,
+                    workspace.base_snapshot,
+                    config,
+                    coder,
+                    reviewer,
+                    tester,
+                    fixer,
+                    shell_executor,
+                    len(task_state.log),
+                    len(task_state.review_history),
+                )
             )
 
-        for task in wave:
-            await process_single_task(task, state, config, coder, reviewer, tester, fixer)
+        if len(task_runs) > 1 and config.parallel:
+            results = await asyncio.gather(*task_runs)
+        else:
+            results = []
+            for task_run in task_runs:
+                results.append(await task_run)
+
+        path_to_tasks: dict[str, list[str]] = {}
+        for result in results:
+            if not result.success:
+                task = next(item for item in state.tasks if item.id == result.task_id)
+                task.status = "failed"
+                state.log.extend(result.new_logs)
+                state.review_history.extend(result.new_reviews)
+                if result.test_result:
+                    state.test_results = result.test_result
+                    state.test_history.append(result.test_result)
+                continue
+            for path in result.changed_paths:
+                path_to_tasks.setdefault(path, []).append(result.task_id)
+
+        conflicting_tasks = {
+            task_id
+            for task_ids in path_to_tasks.values()
+            if len(task_ids) > 1
+            for task_id in task_ids
+        }
+        if conflicting_tasks:
+            conflict_paths = {
+                path: task_ids for path, task_ids in path_to_tasks.items() if len(task_ids) > 1
+            }
+            console.print(f"[red]Wave conflict detected: {conflict_paths}[/red]")
+            state.add_log("orchestrator", f"Wave conflict detected: {conflict_paths}")
+
+        for task, result in zip(runnable_tasks, results):
+            if task.id in conflicting_tasks:
+                task.status = "failed"
+                state.log.extend(result.new_logs)
+                state.review_history.extend(result.new_reviews)
+                if result.test_result:
+                    state.test_results = result.test_result
+                    state.test_history.append(result.test_result)
+                state.add_log("orchestrator", f"{task.id} failed due to overlapping file edits.")
+                continue
+            if result.success:
+                merge_task_result(task, state, result)
+
+        if not config.keep_workspaces:
+            for workspace in workspace_specs:
+                remove_workspace(workspace.path)
 
     console.print(f"\n{'=' * 60}")
     console.print(Panel("Phase 3: Summary", style="bold blue"))

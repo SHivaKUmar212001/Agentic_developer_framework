@@ -1,26 +1,49 @@
 # Copy this file to forge.yaml in the target project repo.
 
+provider: anthropic
 model: claude-sonnet-4-20250514
 max_retries: 3
 max_fix_retries: 3
 skip_tests: false
 skip_review: false
 parallel: true
+runtime_dir: .forge_runtime
+keep_workspaces: false
+
+shell:
+  timeout_seconds: 180
+  allowed_commands:
+    - python
+    - python3
+    - pytest
+    - pip
+    - pip3
+    - npm
+    - npx
+    - pnpm
+    - yarn
+    - node
+    - uv
+    - ruff
 
 agents:
   planner:
+    provider: anthropic
     temperature: 0.4
 
   coder:
+    provider: anthropic
     temperature: 0.2
     max_tokens: 16384
 
   reviewer:
+    provider: anthropic
     temperature: 0.1
 
   tester:
+    provider: anthropic
     temperature: 0.2
 
   fixer:
+    provider: anthropic
     temperature: 0.1
-

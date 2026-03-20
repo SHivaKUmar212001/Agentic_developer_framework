@@ -26,8 +26,9 @@ Wave 5: T6 - Search and filtering
 ```
 
 The scheduler can identify independent tasks in the same wave. The current
-executor still applies them one at a time so sibling tasks do not overwrite one
-another or fight over git state.
+executor now runs each task in its own isolated workspace. When the wave
+finishes, the framework merges non-overlapping file changes back into the main
+repo and rejects overlapping edits for safety.
 
 ## Output you can expect
 
@@ -35,4 +36,3 @@ another or fight over git state.
 - Tests created and executed for each task
 - One git commit per completed task when commit metadata is configured
 - A `FORGE_REPORT.md` summary with limitations and next steps
-

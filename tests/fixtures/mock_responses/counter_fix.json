@@ -1,0 +1,25 @@
+{
+  "responses": [
+    {
+      "agent": "planner",
+      "response": "{\"architecture\":\"Python package with pytest\",\"tasks\":[{\"id\":\"T1\",\"description\":\"Fix counter increment behavior\",\"dependencies\":[],\"acceptance_criteria\":\"increment(1) returns 2 and increment(5) returns 6\"}]}"
+    },
+    {
+      "agent": "coder",
+      "response": "{\"operations\":[{\"type\":\"replace_in_file\",\"path\":\"counter_app/counter.py\",\"changes\":[{\"old\":\"return value + 2\",\"new\":\"return value + 1\"}]}],\"commands\":[],\"notes\":\"Fixed the increment bug.\"}"
+    },
+    {
+      "agent": "reviewer",
+      "response": "{\"approved\":true,\"summary\":\"The fix is targeted and correct.\",\"issues\":[]}"
+    },
+    {
+      "agent": "tester",
+      "response": "{\"operations\":[{\"type\":\"write_file\",\"path\":\"tests/test_counter.py\",\"content\":\"from counter_app.counter import increment\\n\\n\\ndef test_increment_adds_one() -> None:\\n    assert increment(1) == 2\\n    assert increment(5) == 6\\n\"}],\"run_command\":\"python -m pytest tests/test_counter.py -q\",\"framework\":\"pytest\"}"
+    },
+    {
+      "agent": "reporter",
+      "response": "{\"title\":\"Counter fixture fixed\",\"overview\":\"The increment helper was corrected and a regression test was added.\",\"architecture\":\"Simple Python package with pytest regression coverage.\",\"files\":{\"source\":[\"counter_app/counter.py\"],\"tests\":[\"tests/test_counter.py\"]},\"limitations\":[],\"next_steps\":[\"Add coverage for negative inputs.\"],\"health\":\"green\"}"
+    }
+  ]
+}
+

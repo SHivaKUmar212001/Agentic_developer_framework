@@ -21,10 +21,18 @@ RULES:
 
 OUTPUT FORMAT - respond with ONLY this JSON:
 {
-  "files": [
+  "operations": [
     {
+      "type": "write_file|replace_in_file|delete_file",
       "path": "relative/path.ext",
-      "content": "full file content"
+      "content": "required for write_file",
+      "changes": [
+        {
+          "old": "required for replace_in_file",
+          "new": "replacement text",
+          "replace_all": false
+        }
+      ]
     }
   ],
   "commands": ["optional shell command"],
@@ -65,7 +73,15 @@ OUTPUT FORMAT - respond with ONLY this JSON:
                 for issue in feedback
             )
 
+        prompt_parts.append(
+            "\n## Editing rules\n"
+            "- Prefer replace_in_file for existing files.\n"
+            "- Use write_file only for brand new files or complete rewrites that are truly necessary.\n"
+            "- Never touch files outside the current task."
+        )
+
         response = await self.call("\n".join(prompt_parts))
         result = self.parse_json(response)
-        state.add_log(self.name, f"{task.id}: wrote {len(result.get('files', []))} file(s)")
+        operation_count = len(result.get("operations", [])) or len(result.get("files", []))
+        state.add_log(self.name, f"{task.id}: proposed {operation_count} edit operation(s)")
         return result

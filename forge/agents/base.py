@@ -18,11 +18,13 @@ class BaseAgent(ABC):
         self.config = config
 
     async def call(self, user_message: str, **kwargs: Any) -> str:
+        provider = kwargs.pop("provider", None)
         model = kwargs.pop("model", None)
         max_tokens = kwargs.pop("max_tokens", None)
         temperature = kwargs.pop("temperature", None)
 
         if self.config is not None:
+            provider = provider or self.config.provider
             model = model or self.config.model
             max_tokens = max_tokens or self.config.max_tokens
             if temperature is None:
@@ -31,9 +33,11 @@ class BaseAgent(ABC):
         return await call_llm(
             self.system_prompt,
             user_message,
+            provider=provider,
             model=model,
             max_tokens=max_tokens,
             temperature=temperature,
+            agent_name=self.name,
         )
 
     def parse_json(self, text: str) -> dict[str, Any]:

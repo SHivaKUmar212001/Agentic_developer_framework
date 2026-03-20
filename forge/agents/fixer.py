@@ -21,10 +21,18 @@ RULES:
 OUTPUT FORMAT - respond with ONLY this JSON:
 {
   "diagnosis": "brief root cause summary",
-  "files": [
+  "operations": [
     {
+      "type": "replace_in_file|write_file|delete_file",
       "path": "relative/path.ext",
-      "content": "full file content"
+      "content": "required for write_file",
+      "changes": [
+        {
+          "old": "required for replace_in_file",
+          "new": "replacement text",
+          "replace_all": false
+        }
+      ]
     }
   ],
   "changes_made": ["short bullet"]
@@ -68,9 +76,12 @@ OUTPUT FORMAT - respond with ONLY this JSON:
 
 {test_result.get('passed', 0)} tests passed and {test_result.get('failed', 0)} failed.
 
-Apply the smallest possible fix."""
+Apply the smallest possible fix.
+
+Prefer replace_in_file operations over full rewrites whenever possible."""
 
         response = await self.call(prompt)
         result = self.parse_json(response)
-        state.add_log(self.name, f"{task.id}: {len(result.get('files', []))} file(s) patched")
+        operation_count = len(result.get("operations", [])) or len(result.get("files", []))
+        state.add_log(self.name, f"{task.id}: {operation_count} fix operation(s) proposed")
         return result

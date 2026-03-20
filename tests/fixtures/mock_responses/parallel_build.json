@@ -1,0 +1,32 @@
+{
+  "responses": [
+    {
+      "agent": "planner",
+      "response": "{\"architecture\":\"Plain text files\",\"tasks\":[{\"id\":\"T1\",\"description\":\"Create alpha note\",\"dependencies\":[],\"acceptance_criteria\":\"alpha.txt exists with alpha\"},{\"id\":\"T2\",\"description\":\"Create beta note\",\"dependencies\":[],\"acceptance_criteria\":\"beta.txt exists with beta\"}]}"
+    },
+    {
+      "agent": "coder",
+      "contains": "Create alpha note",
+      "response": "{\"operations\":[{\"type\":\"write_file\",\"path\":\"alpha.txt\",\"content\":\"alpha\\n\"}],\"commands\":[],\"notes\":\"Created alpha note.\"}"
+    },
+    {
+      "agent": "coder",
+      "contains": "Create beta note",
+      "response": "{\"operations\":[{\"type\":\"write_file\",\"path\":\"beta.txt\",\"content\":\"beta\\n\"}],\"commands\":[],\"notes\":\"Created beta note.\"}"
+    },
+    {
+      "agent": "reviewer",
+      "contains": "Create alpha note",
+      "response": "{\"approved\":true,\"summary\":\"Alpha note looks good.\",\"issues\":[]}"
+    },
+    {
+      "agent": "reviewer",
+      "contains": "Create beta note",
+      "response": "{\"approved\":true,\"summary\":\"Beta note looks good.\",\"issues\":[]}"
+    },
+    {
+      "agent": "reporter",
+      "response": "{\"title\":\"Parallel notes built\",\"overview\":\"Two independent note files were created in separate task workspaces and merged successfully.\",\"architecture\":\"Plain text file generation with isolated task workspaces.\",\"files\":{\"notes\":[\"alpha.txt\",\"beta.txt\"]},\"limitations\":[],\"next_steps\":[\"Add tests if the files become executable artifacts.\"],\"health\":\"green\"}"
+    }
+  ]
+}

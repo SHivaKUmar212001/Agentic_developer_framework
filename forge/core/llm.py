@@ -1,48 +1,41 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 from typing import Any, Optional
 
-from anthropic import Anthropic
+from forge.core.providers import BaseProvider, get_provider as get_provider_client
 
 MODEL = os.getenv("FORGE_MODEL", "claude-sonnet-4-20250514")
 MAX_TOKENS = int(os.getenv("FORGE_MAX_TOKENS", "8192"))
 
-_client: Optional[Anthropic] = None
+
+def get_provider(provider_name: Optional[str] = None) -> BaseProvider:
+    return get_provider_client(provider_name or os.getenv("FORGE_PROVIDER", "anthropic"))
 
 
-def get_client() -> Anthropic:
-    global _client
-    if _client is None:
-        _client = Anthropic()
-    return _client
+def clear_provider_cache() -> None:
+    get_provider_client.cache_clear()  # type: ignore[attr-defined]
 
 
 async def call_llm(
     system: str,
     user_message: str,
     *,
+    provider: Optional[str] = None,
     model: Optional[str] = None,
     max_tokens: Optional[int] = None,
     temperature: Optional[float] = None,
+    agent_name: Optional[str] = None,
 ) -> str:
-    response = await asyncio.to_thread(
-        get_client().messages.create,
+    return await get_provider(provider).complete(
+        system=system,
+        user_message=user_message,
         model=model or MODEL,
         max_tokens=max_tokens or MAX_TOKENS,
         temperature=0.3 if temperature is None else temperature,
-        system=system,
-        messages=[{"role": "user", "content": user_message}],
+        agent_name=agent_name,
     )
-
-    text_blocks = [
-        block.text
-        for block in response.content
-        if getattr(block, "type", None) == "text"
-    ]
-    return "\n".join(text_blocks).strip()
 
 
 def parse_json_response(text: str) -> Any:
