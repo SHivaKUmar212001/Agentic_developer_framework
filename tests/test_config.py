@@ -39,4 +39,15 @@ def test_loads_project_config(tmp_path) -> None:
     assert config.shell.timeout_seconds == 90
     assert config.shell.allowed_commands == ["python", "pytest"]
     assert config.get_agent_config("reviewer").provider == "ollama"
+    assert config.get_agent_config("reviewer").model == "llama3.1:8b"
     assert config.get_agent_config("reviewer").temperature == 0.1
+
+
+def test_defaults_ollama_model_when_provider_is_ollama(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FORGE_PROVIDER", "ollama")
+    monkeypatch.delenv("FORGE_MODEL", raising=False)
+
+    config = ForgeConfig.load(str(tmp_path))
+
+    assert config.provider == "ollama"
+    assert config.model == "llama3.1:8b"

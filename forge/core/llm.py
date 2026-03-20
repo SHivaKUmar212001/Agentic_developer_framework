@@ -4,14 +4,15 @@ import json
 import os
 from typing import Any, Optional
 
+from forge.core.provider_defaults import DEFAULT_PROVIDER, default_model_for_provider
 from forge.core.providers import BaseProvider, get_provider as get_provider_client
 
-MODEL = os.getenv("FORGE_MODEL", "claude-sonnet-4-20250514")
+MODEL = os.getenv("FORGE_MODEL", "")
 MAX_TOKENS = int(os.getenv("FORGE_MAX_TOKENS", "8192"))
 
 
 def get_provider(provider_name: Optional[str] = None) -> BaseProvider:
-    return get_provider_client(provider_name or os.getenv("FORGE_PROVIDER", "anthropic"))
+    return get_provider_client(provider_name or os.getenv("FORGE_PROVIDER", DEFAULT_PROVIDER))
 
 
 def clear_provider_cache() -> None:
@@ -28,10 +29,12 @@ async def call_llm(
     temperature: Optional[float] = None,
     agent_name: Optional[str] = None,
 ) -> str:
+    resolved_provider = provider or os.getenv("FORGE_PROVIDER", DEFAULT_PROVIDER)
+    resolved_model = model or MODEL or default_model_for_provider(resolved_provider)
     return await get_provider(provider).complete(
         system=system,
         user_message=user_message,
-        model=model or MODEL,
+        model=resolved_model,
         max_tokens=max_tokens or MAX_TOKENS,
         temperature=0.3 if temperature is None else temperature,
         agent_name=agent_name,

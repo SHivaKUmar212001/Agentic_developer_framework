@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import os
 
+from forge.core.provider_defaults import DEFAULT_PROVIDER, default_model_for_provider
+
 try:
     import yaml
 
@@ -43,8 +45,11 @@ class ShellConfig:
 
 @dataclass
 class ForgeConfig:
-    provider: str = field(default_factory=lambda: os.getenv("FORGE_PROVIDER", "anthropic"))
-    model: str = field(default_factory=lambda: os.getenv("FORGE_MODEL", "claude-sonnet-4-20250514"))
+    provider: str = field(default_factory=lambda: os.getenv("FORGE_PROVIDER", DEFAULT_PROVIDER))
+    model: str = field(
+        default_factory=lambda: os.getenv("FORGE_MODEL", "")
+        or default_model_for_provider(os.getenv("FORGE_PROVIDER", DEFAULT_PROVIDER))
+    )
     max_review_retries: int = 3
     max_fix_retries: int = 3
     skip_tests: bool = False
@@ -59,6 +64,7 @@ class ForgeConfig:
     def load(cls, repo_path: str) -> "ForgeConfig":
         config = cls()
         config_path = Path(repo_path) / "forge.yaml"
+        explicit_env_model = os.getenv("FORGE_MODEL", "")
 
         if config_path.exists() and HAS_YAML:
             with config_path.open(encoding="utf-8") as handle:
@@ -66,6 +72,8 @@ class ForgeConfig:
 
             config.provider = raw.get("provider", config.provider)
             config.model = raw.get("model", config.model)
+            if "model" not in raw and not explicit_env_model:
+                config.model = default_model_for_provider(config.provider)
             config.max_review_retries = raw.get(
                 "max_retries",
                 config.max_review_retries,
@@ -93,9 +101,17 @@ class ForgeConfig:
             )
 
             for agent_name, agent_raw in raw.get("agents", {}).items():
+                agent_provider = agent_raw.get("provider", config.provider)
+                if "model" in agent_raw:
+                    agent_model = agent_raw.get("model", config.model)
+                elif agent_provider == config.provider:
+                    agent_model = config.model
+                else:
+                    agent_model = default_model_for_provider(agent_provider)
+
                 config.agents[agent_name] = AgentConfig(
-                    provider=agent_raw.get("provider", config.provider),
-                    model=agent_raw.get("model", config.model),
+                    provider=agent_provider,
+                    model=agent_model,
                     temperature=agent_raw.get("temperature", 0.3),
                     max_tokens=agent_raw.get("max_tokens", 8192),
                 )
@@ -108,6 +124,9 @@ class ForgeConfig:
             if not agent_config.provider:
                 agent_config.provider = self.provider
             if not agent_config.model:
-                agent_config.model = self.model
+                if agent_config.provider == self.provider:
+                    agent_config.model = self.model
+                else:
+                    agent_config.model = default_model_for_provider(agent_config.provider)
             return agent_config
         return AgentConfig(provider=self.provider, model=self.model)

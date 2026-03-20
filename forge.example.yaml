@@ -47,3 +47,7 @@ agents:
   fixer:
     provider: anthropic
     temperature: 0.1
+
+# Ollama example:
+# provider: ollama
+# model: llama3.1:8b

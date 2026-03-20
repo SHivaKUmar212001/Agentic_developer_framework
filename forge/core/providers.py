@@ -12,6 +12,8 @@ from typing import Any, Optional
 import httpx
 from anthropic import Anthropic
 
+from forge.core.provider_defaults import default_model_for_provider
+
 
 class ProviderSetupError(RuntimeError):
     """Raised when a provider is selected but not configured correctly."""
@@ -149,11 +151,37 @@ class OllamaProvider(BaseProvider):
         }
 
         def _send() -> str:
-            with httpx.Client(timeout=60.0) as client:
-                response = client.post(f"{self.base_url}/api/chat", json=payload)
-                response.raise_for_status()
-                data = response.json()
-                return data.get("message", {}).get("content", "")
+            try:
+                with httpx.Client(timeout=60.0) as client:
+                    response = client.post(f"{self.base_url}/api/chat", json=payload)
+                    response.raise_for_status()
+                    data = response.json()
+                    return data.get("message", {}).get("content", "")
+            except httpx.HTTPStatusError as exc:
+                detail = exc.response.text.strip()
+                if "not found" in detail.lower():
+                    raise ProviderSetupError(
+                        f"Ollama is running, but model '{model}' is not available.\n"
+                        f"Pull it first with:\n  ollama pull {model}\n"
+                        f"Then run forge again. If you want the default local model, use:\n"
+                        f'  export FORGE_PROVIDER="ollama"\n'
+                        f'  export FORGE_MODEL="{default_model_for_provider("ollama")}"'
+                    ) from exc
+                raise ProviderSetupError(
+                    f"Ollama returned an HTTP error while using model '{model}'.\n"
+                    f"Host: {self.base_url}\n"
+                    f"Details: {detail or exc}"
+                ) from exc
+            except httpx.HTTPError as exc:
+                raise ProviderSetupError(
+                    "Could not connect to Ollama.\n"
+                    f"Expected host: {self.base_url}\n"
+                    "Start Ollama and pull a local model first:\n"
+                    "  ollama serve\n"
+                    f"  ollama pull {default_model_for_provider('ollama')}\n"
+                    '  export FORGE_PROVIDER="ollama"\n'
+                    f'  export FORGE_MODEL="{default_model_for_provider("ollama")}"'
+                ) from exc
 
         return await asyncio.to_thread(_send)
 

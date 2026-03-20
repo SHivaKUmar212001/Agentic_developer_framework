@@ -118,6 +118,51 @@ Provider options:
 The mock provider is used in the fixture-based end-to-end tests and reads its
 responses from `FORGE_MOCK_RESPONSES`.
 
+## Local-model architecture with Ollama
+
+If you want the right local-first setup, keep the model on the user's machine
+with Ollama instead of shipping a shared cloud API key.
+
+Recommended flow:
+
+1. Install Ollama on the local machine.
+2. Start the Ollama server.
+3. Pull a local model once.
+4. Point forge at Ollama.
+
+macOS and Linux:
+
+```bash
+ollama serve
+ollama pull llama3.1:8b
+
+echo 'export FORGE_PROVIDER="ollama"' >> ~/.zshrc
+echo 'export FORGE_MODEL="llama3.1:8b"' >> ~/.zshrc
+source ~/.zshrc
+
+forge build "create a dashboard to track my gym progress"
+```
+
+Windows PowerShell:
+
+```powershell
+ollama serve
+ollama pull llama3.1:8b
+
+Add-Content $PROFILE '$env:FORGE_PROVIDER = "ollama"'
+Add-Content $PROFILE '$env:FORGE_MODEL = "llama3.1:8b"'
+. $PROFILE
+
+forge build "create a dashboard to track my gym progress"
+```
+
+Why this architecture is better:
+
+- no shared cloud API key in the client package
+- users can run locally without exposing your billing account
+- setup is still one-time per machine
+- it can work offline once Ollama and the model are present
+
 ## Persist your API key once on your own machine
 
 For your own local use, set the provider and API key once in your shell profile
@@ -201,7 +246,7 @@ Or publish from GitHub Actions after adding a repository secret named
 `PYPI_API_TOKEN`, then either:
 
 - run the `Publish` workflow manually, or
-- push a version tag like `v0.1.0`
+- push a version tag like `v0.1.1`
 
 See [`WALKTHROUGH.md`](https://github.com/SHivaKUmar212001/Agentic_developer_framework/blob/main/WALKTHROUGH.md)
 for a sample end-to-end run.
