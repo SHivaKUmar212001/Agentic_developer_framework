@@ -35,7 +35,7 @@ def _execute(mode: str, user_prompt: str, repo_path: str, focus: str = "") -> No
     console.print(
         Panel(
             f"Mode: {mode.upper()}\n"
-            f"{'Repo' if fix else 'Output'}: {repo_path}\n"
+            f"{'Repo' if mode == 'fix' else 'Output'}: {repo_path}\n"
             f"Prompt: {user_prompt}"
             + (f"\nFocus: {focus}" if focus else ""),
             title="forge",
