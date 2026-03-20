@@ -6,8 +6,27 @@ build-backend = "setuptools.build_meta"
 name = "forge-agents"
 version = "0.1.0"
 description = "Experimental multi-agent developer pipeline"
-readme = "README.md"
+readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.9"
+authors = [
+    {name = "Shiva Kumar"},
+]
+keywords = ["agents", "ai", "automation", "cli", "developer-tools", "llm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Testing",
+]
 dependencies = [
     "anthropic>=0.30.0",
     "click>=8.1",
@@ -19,11 +38,18 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "build>=1.2",
     "pytest>=8.0",
+    "twine>=5.0",
 ]
 
 [project.scripts]
 forge = "forge.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/SHivaKUmar212001/Agentic_developer_framework"
+Repository = "https://github.com/SHivaKUmar212001/Agentic_developer_framework"
+Issues = "https://github.com/SHivaKUmar212001/Agentic_developer_framework/issues"
 
 [tool.setuptools.packages.find]
 include = ["forge*"]
