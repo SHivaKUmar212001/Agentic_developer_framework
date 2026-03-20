@@ -2,6 +2,10 @@
 
 An experimental multi-agent developer workflow packaged as `forge`.
 
+Important: do not ship your personal API key inside the package or repository.
+If you embed your key in a public build, anyone who installs it can extract that
+key and use your paid model account.
+
 The framework takes a single goal, turns it into a task graph, and then runs
 planning, coding, review, testing, fixing, and reporting steps in order. The
 control flow is deterministic Python, while the agents themselves are prompt
@@ -9,7 +13,7 @@ driven.
 
 ## What is included
 
-- A CLI entry point: `forge run`
+- CLI entry points: `forge run`, `forge build`, and `forge fix`
 - Agent roles for planning, coding, review, testing, fixing, and reporting
 - Isolated per-task workspaces for parallel-ready waves
 - Structured edit operations instead of prompt-only full-file rewrites
@@ -53,10 +57,10 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 export FORGE_PROVIDER="anthropic"
 
 # Build mode
-forge run "build a todo app with auth and SQLite"
+forge build "build a todo app with auth and SQLite"
 
 # Fix mode
-forge run --fix ./my-repo --focus "the login endpoint returns 500"
+forge fix ./my-repo --focus "the login endpoint returns 500"
 ```
 
 ## Quick start on Windows PowerShell
@@ -70,7 +74,7 @@ $env:FORGE_PROVIDER = "anthropic"
 $env:ANTHROPIC_API_KEY = "sk-ant-..."
 
 forge --help
-forge run "build a todo app with auth and SQLite"
+forge build "build a todo app with auth and SQLite"
 ```
 
 If `forge` is not found, run:
@@ -113,6 +117,30 @@ Provider options:
 
 The mock provider is used in the fixture-based end-to-end tests and reads its
 responses from `FORGE_MOCK_RESPONSES`.
+
+## Persist your API key once on your own machine
+
+For your own local use, set the provider and API key once in your shell profile
+so you do not have to re-enter them every time.
+
+macOS and Linux with `zsh`:
+
+```bash
+echo 'export FORGE_PROVIDER="anthropic"' >> ~/.zshrc
+echo 'export ANTHROPIC_API_KEY="sk-ant-..."' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Windows PowerShell profile:
+
+```powershell
+Add-Content $PROFILE '$env:FORGE_PROVIDER = "anthropic"'
+Add-Content $PROFILE '$env:ANTHROPIC_API_KEY = "sk-ant-..."'
+. $PROFILE
+```
+
+That removes repeated setup for you, but end users should still use their own
+key or a local provider such as Ollama.
 
 ## Repository layout
 

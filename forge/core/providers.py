@@ -13,6 +13,10 @@ import httpx
 from anthropic import Anthropic
 
 
+class ProviderSetupError(RuntimeError):
+    """Raised when a provider is selected but not configured correctly."""
+
+
 class BaseProvider(ABC):
     name = "base"
 
@@ -34,6 +38,14 @@ class AnthropicProvider(BaseProvider):
     name = "anthropic"
 
     def __init__(self) -> None:
+        if not os.getenv("ANTHROPIC_API_KEY"):
+            raise ProviderSetupError(
+                "Anthropic is selected, but ANTHROPIC_API_KEY is not set.\n"
+                "Set it once in your shell profile or before running forge:\n"
+                '  export FORGE_PROVIDER="anthropic"\n'
+                '  export ANTHROPIC_API_KEY="sk-ant-..."\n'
+                "If you want a local model instead, switch to FORGE_PROVIDER=ollama."
+            )
         self.client = Anthropic()
 
     async def complete(
@@ -70,6 +82,15 @@ class OpenAIProvider(BaseProvider):
             from openai import OpenAI
         except ImportError as exc:
             raise RuntimeError("OpenAI support requires the 'openai' package.") from exc
+
+        if not os.getenv("OPENAI_API_KEY"):
+            raise ProviderSetupError(
+                "OpenAI is selected, but OPENAI_API_KEY is not set.\n"
+                "Set it once in your shell profile or before running forge:\n"
+                '  export FORGE_PROVIDER="openai"\n'
+                '  export OPENAI_API_KEY="sk-..."\n'
+                "If you want a local model instead, switch to FORGE_PROVIDER=ollama."
+            )
 
         base_url = os.getenv("OPENAI_BASE_URL") or None
         self.client = OpenAI(base_url=base_url)

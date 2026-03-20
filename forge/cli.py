@@ -20,33 +20,10 @@ def cli() -> None:
     """forge - multi-agent developer workflow."""
 
 
-@cli.command()
-@click.argument("prompt", required=False)
-@click.option("--fix", type=click.Path(exists=True), help="Path to repo to fix")
-@click.option("--focus", default="", help="Optional bug or area to focus on")
-@click.option(
-    "--output",
-    "-o",
-    default="./forge-output",
-    help="Output directory to create in build mode",
-)
-def run(prompt: Optional[str], fix: Optional[str], focus: str, output: str) -> None:
-    """Run the full pipeline in build mode or fix mode."""
+def _execute(mode: str, user_prompt: str, repo_path: str, focus: str = "") -> None:
     from forge.core.orchestrator import orchestrate
+    from forge.core.providers import ProviderSetupError
     from forge.core.state import SharedState
-
-    if fix is None and prompt is None:
-        console.print("[red]Provide a prompt or use --fix <path>.[/red]")
-        raise click.Abort()
-
-    if fix:
-        mode = "fix"
-        repo_path = os.path.abspath(fix)
-        user_prompt = prompt or "Analyze and fix issues in this repository."
-    else:
-        mode = "build"
-        repo_path = os.path.abspath(output)
-        user_prompt = prompt or ""
 
     state = SharedState(
         mode=mode,
@@ -66,7 +43,74 @@ def run(prompt: Optional[str], fix: Optional[str], focus: str, output: str) -> N
         )
     )
 
-    asyncio.run(orchestrate(state))
+    try:
+        asyncio.run(orchestrate(state))
+    except ProviderSetupError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@cli.command()
+@click.argument("prompt", required=False)
+@click.option("--fix", type=click.Path(exists=True), help="Path to repo to fix")
+@click.option("--focus", default="", help="Optional bug or area to focus on")
+@click.option(
+    "--output",
+    "-o",
+    default="./forge-output",
+    help="Output directory to create in build mode",
+)
+def run(prompt: Optional[str], fix: Optional[str], focus: str, output: str) -> None:
+    """Run the full pipeline in build mode or fix mode."""
+    if fix is None and prompt is None:
+        console.print("[red]Provide a prompt or use --fix <path>.[/red]")
+        raise click.Abort()
+
+    if fix:
+        _execute(
+            mode="fix",
+            user_prompt=prompt or "Analyze and fix issues in this repository.",
+            repo_path=os.path.abspath(fix),
+            focus=focus,
+        )
+        return
+
+    _execute(
+        mode="build",
+        user_prompt=prompt or "",
+        repo_path=os.path.abspath(output),
+        focus=focus,
+    )
+
+
+@cli.command()
+@click.argument("prompt")
+@click.option(
+    "--output",
+    "-o",
+    default="./forge-output",
+    help="Output directory to create in build mode",
+)
+def build(prompt: str, output: str) -> None:
+    """Run the build pipeline."""
+    _execute(
+        mode="build",
+        user_prompt=prompt,
+        repo_path=os.path.abspath(output),
+    )
+
+
+@cli.command()
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--prompt", default="Analyze and fix issues in this repository.")
+@click.option("--focus", default="", help="Optional bug or area to focus on")
+def fix(path: str, prompt: str, focus: str) -> None:
+    """Run the fix pipeline against an existing repository."""
+    _execute(
+        mode="fix",
+        user_prompt=prompt,
+        repo_path=os.path.abspath(path),
+        focus=focus,
+    )
 
 
 @cli.command()
