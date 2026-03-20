@@ -161,6 +161,8 @@ class SharedState:
 
     def commit(self, task: Task, repo_path: str) -> bool:
         try:
+            self._ensure_git_identity(repo_path)
+
             add_result = subprocess.run(
                 ["git", "add", "."],
                 cwd=repo_path,
@@ -197,3 +199,36 @@ class SharedState:
         except Exception as exc:
             self.add_log("git", f"Commit failed for {task.id}: {exc}")
             return False
+
+    def _ensure_git_identity(self, repo_path: str) -> None:
+        name_result = subprocess.run(
+            ["git", "config", "--get", "user.name"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+        )
+        email_result = subprocess.run(
+            ["git", "config", "--get", "user.email"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+        )
+
+        if name_result.returncode == 0 and email_result.returncode == 0:
+            return
+
+        fallback_name = os.getenv("FORGE_GIT_NAME", "Forge Bot")
+        fallback_email = os.getenv("FORGE_GIT_EMAIL", "forge@example.com")
+        subprocess.run(
+            ["git", "config", "user.name", fallback_name],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.email", fallback_email],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+        )
+        self.add_log("git", f"Configured local git identity for commits as {fallback_name} <{fallback_email}>")

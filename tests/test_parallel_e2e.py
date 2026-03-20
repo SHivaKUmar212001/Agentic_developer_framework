@@ -14,7 +14,9 @@ FIXTURE_ROOT = Path(__file__).parent / "fixtures"
 
 def test_parallel_wave_runs_in_isolated_workspaces(tmp_path, monkeypatch) -> None:
     repo_path = tmp_path / "parallel_build"
+    home_path = tmp_path / "home"
     repo_path.mkdir()
+    home_path.mkdir()
     (repo_path / "forge.yaml").write_text(
         "\n".join(
             [
@@ -30,6 +32,8 @@ def test_parallel_wave_runs_in_isolated_workspaces(tmp_path, monkeypatch) -> Non
         "FORGE_MOCK_RESPONSES",
         str(FIXTURE_ROOT / "mock_responses" / "parallel_build.json"),
     )
+    monkeypatch.setenv("HOME", str(home_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home_path))
     clear_provider_cache()
 
     state = SharedState(
@@ -54,4 +58,3 @@ def test_parallel_wave_runs_in_isolated_workspaces(tmp_path, monkeypatch) -> Non
     assert state.tasks[1].status == "done"
     assert "forge: T1 - Create alpha note" in git_log
     assert "forge: T2 - Create beta note" in git_log
-
